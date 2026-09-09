@@ -163,16 +163,26 @@
 - 构建时间：约 2 分钟
 - 适用场景：部署到 Linux 容器或服务器，且对体积敏感
 
-### 🥈 Nuitka `--onefile` + glibc — 15–20 MB
+### 🥈 PyInstaller `--onefile` — 8–10 MB（已 strip）
 
-同上，但链接 glibc。体积更大（因为 glibc 本身更重），但开箱兼容几乎所有 Linux 发行版。
+冻结字节码 + 打包 CPython 解释器。strip 后体积与 Nuitka 相当。无需 C 编译步骤，构建更快。
+
+- tinyleaf: **7.88 MB**（glibc）/ **7.99 MB**（musl）— 冒烟测试 ✅
+- llm-rosetta: **10.15 MB**（glibc）/ **10.42 MB**（musl）— 冒烟测试 ❌（动态 `importlib` 加载导致隐式导入问题）
+- 构建时间：约 30 秒
+- 适用场景：无复杂动态导入的标准项目；最快的构建流水线
+- 注意：使用动态 `importlib` 模式的项目可能需要大量 `--hidden-import` 调优
+
+### 🥉 Nuitka `--onefile` + glibc — 15–20 MB
+
+同 🥇，但链接 glibc。体积更大（因为 glibc 本身更重），但兼容几乎所有 Linux 发行版。对于有动态导入的项目比 PyInstaller 更好（Nuitka 的 `--include-package` 可以处理）。
 
 - tinyleaf: **14.87 MB** / llm-rosetta: **19.95 MB**
 - 平台：仅 Linux（glibc，最广泛兼容）
 - 构建时间：约 2 分钟
-- 适用场景：目标 Linux 环境多样，不确定 musl 兼容性时
+- 适用场景：目标 Linux 环境多样，或 PyInstaller 无法处理动态导入时
 
-### 🥉 cosmofy（Cosmopolitan APE）— ~39 MB
+### 荣誉提名：cosmofy（Cosmopolitan APE）— ~39 MB
 
 将 Cosmopolitan Python 运行时（约 39 MB 基线）和应用的 `.py` 文件打包为单个 Actually Portable Executable。无需编译，只是打包。一个文件可在 Linux、macOS 和 Windows 上原生运行。
 
@@ -181,7 +191,15 @@
 - 构建时间：约 3 秒
 - 适用场景：需要一个文件在所有平台运行，体积不是首要考虑
 
-### 不适合单文件的工具
+### 仅目录模式（非单文件）
+
+| 工具 | 二进制 | 目录总大小 | 冒烟测试 | 备注 |
+|------|--------|-----------|---------|------|
+| **cx_Freeze**（tinyleaf, musl, opt=2） | 7.55 MB | **18.67 MB** | ✅ | 无 onefile 模式；需分发整个目录 |
+| **cx_Freeze**（llm-rosetta, glibc, opt=2） | 6.78 MB | **39.32 MB** | ✅ | 所有冒烟测试通过（兼容性优于 PyInstaller） |
+| **Nuitka `--standalone`**（tinyleaf, musl） | — | **6.29 MB** | ✅ | 最小目录输出 |
+
+### 不适合独立分发的工具
 
 | 工具 | 原因 |
 |------|------|

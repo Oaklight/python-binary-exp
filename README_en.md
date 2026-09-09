@@ -163,16 +163,26 @@ The smallest standalone single file. Transpiles Python to C, bundles a minimal C
 - Build time: ~2 minutes
 - Use when: deploying to Linux containers or servers where size matters
 
-### 🥈 Nuitka `--onefile` with glibc — 15–20 MB
+### 🥈 PyInstaller `--onefile` — 8–10 MB (stripped)
 
-Same as above but linked against glibc. Larger because glibc is heavier, but compatible with virtually all Linux distributions out of the box.
+Freezes bytecode + bundles CPython interpreter. Comparable size to Nuitka when stripped. No C compilation step — faster builds.
+
+- tinyleaf: **7.88 MB** (glibc) / **7.99 MB** (musl) — smoke ✅
+- llm-rosetta: **10.15 MB** (glibc) / **10.42 MB** (musl) — smoke ❌ (hidden import issues with dynamic `importlib` loading)
+- Build time: ~30 seconds
+- Use when: standard projects without complex dynamic imports; fastest build pipeline
+- Caveat: projects with dynamic `importlib` patterns may need extensive `--hidden-import` tuning
+
+### 🥉 Nuitka `--onefile` with glibc — 15–20 MB
+
+Same as 🥇 but linked against glibc. Larger because glibc is heavier, but compatible with virtually all Linux distributions. Better than PyInstaller for projects with dynamic imports (Nuitka's `--include-package` handles them).
 
 - tinyleaf: **14.87 MB** / llm-rosetta: **19.95 MB**
 - Platform: Linux only (glibc, broadest compatibility)
 - Build time: ~2 minutes
-- Use when: targeting diverse Linux environments where musl compat is uncertain
+- Use when: targeting diverse Linux environments, or when PyInstaller can't handle dynamic imports
 
-### 🥉 cosmofy (Cosmopolitan APE) — ~39 MB
+### Honorable mention: cosmofy (Cosmopolitan APE) — ~39 MB
 
 Bundles the Cosmopolitan Python runtime (~39 MB baseline) with your `.py` files into a single Actually Portable Executable. No compilation — just packaging. One file runs natively on Linux, macOS, and Windows.
 
@@ -181,7 +191,15 @@ Bundles the Cosmopolitan Python runtime (~39 MB baseline) with your `.py` files 
 - Build time: ~3 seconds
 - Use when: you need one file that works everywhere, and size is secondary
 
-### Not viable for single-file
+### Directory-only (not single-file)
+
+| Tool | Binary | Total Dir | Smoke | Notes |
+|------|--------|-----------|-------|-------|
+| **cx_Freeze** (tinyleaf, musl, opt=2) | 7.55 MB | **18.67 MB** | ✅ | No onefile mode; must ship entire directory |
+| **cx_Freeze** (llm-rosetta, glibc, opt=2) | 6.78 MB | **39.32 MB** | ✅ | All smoke tests pass (better compat than PyInstaller) |
+| **Nuitka `--standalone`** (tinyleaf, musl) | — | **6.29 MB** | ✅ | Smallest directory output |
+
+### Not viable for standalone
 
 | Tool | Why not |
 |------|---------|
