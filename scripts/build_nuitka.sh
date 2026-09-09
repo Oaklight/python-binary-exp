@@ -76,10 +76,10 @@ python -m nuitka $FLAGS "$ENTRY_FILE"
 END_TIME=$(date +%s)
 BUILD_TIME=$((END_TIME - START_TIME))
 
-BINARY=$(find "$OUTPUT_DIR" -maxdepth 2 -type f -executable ! -name "*.so" ! -name "*.py" ! -name "*.dist" | head -1)
+BINARY="$(find "$OUTPUT_DIR" -maxdepth 2 -type f -executable ! -name "*.so" ! -name "*.py" ! -name "*.dist" -print -quit 2>/dev/null || true)"
 
 if [ -z "$BINARY" ]; then
-    BINARY=$(find "$OUTPUT_DIR" -maxdepth 2 -name "target_entry*" -type f | head -1)
+    BINARY="$(find "$OUTPUT_DIR" -maxdepth 2 -name "target_entry*" -type f -print -quit 2>/dev/null || true)"
 fi
 
 if [ -z "$BINARY" ]; then
