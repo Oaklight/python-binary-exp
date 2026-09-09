@@ -53,6 +53,28 @@ jobs:
               ;;
           esac
 
+      - name: Fix dynamic version for cosmofy compatibility
+        run: |
+          cd /tmp/target
+          # cosmofy calls `uv version` which can't handle dynamic versions
+          # Extract version from source and make it static in pyproject.toml
+          TARGET=${{ matrix.target }}
+          case "$TARGET" in
+            llm-rosetta)
+              VER=$(python3 -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/llm_rosetta/__init__.py').read()).group(1))" 2>/dev/null || echo "0.0.0")
+              ;;
+            tinyleaf)
+              VER=$(python3 -c "import re; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/tinyleaf/__init__.py').read()).group(1))" 2>/dev/null || echo "0.0.0")
+              ;;
+          esac
+          echo "Detected version: $VER"
+          # Replace dynamic version with static
+          sed -i 's/^dynamic = \["version"\]/version = "'"$VER"'"/' pyproject.toml
+          # Remove the dynamic version source config
+          sed -i '/\[tool\.setuptools\.dynamic\]/,/^$/d' pyproject.toml
+          echo "=== patched pyproject.toml (version section) ==="
+          grep -A2 "version" pyproject.toml | head -5
+
       - name: Build with cosmofy
         id: build
         run: |
