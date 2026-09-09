@@ -129,6 +129,27 @@ Sorted by binary size ascending. Only configurations passing the smoke test (`--
 
 > **Key finding:** Cython `--embed` with dynamic linking produces a tiny binary (~20 KB) but it is **not standalone** — it depends on `libpython3.x.so` at runtime, which is not universally available on target systems. Static linking attempts largely failed due to the complexity of obtaining and linking static CPython builds in CI. Cython `--embed` is not a practical path for standalone distribution without significant manual plumbing.
 
+### Cosmofy (Cosmopolitan APE) — Both Targets (4 builds, 2 passed)
+
+Single Actually Portable Executable — one binary runs on Linux, macOS, and Windows natively.
+
+| Target | Bytecode Compiled | Size (MB) | Build Time | Smoke | Notes |
+|--------|-------------------|-----------|------------|-------|-------|
+| tinyleaf | no | **38.80** | 3s | ✅ | Cross-platform single file |
+| llm-rosetta | no | **39.32** | 3s | ✅ | Cross-platform single file |
+| tinyleaf | yes | — | — | ❌ | Bytecode compilation requires APE loader on CI |
+| llm-rosetta | yes | — | — | ❌ | Same issue |
+
+> The base Cosmopolitan Python runtime is ~39 MB. App size adds negligibly — tinyleaf and llm-rosetta differ by only 0.5 MB. Build time is near-instant since cosmofy just bundles `.py` files into the APE zip section rather than compiling.
+
+### Cross-Toolchain Summary (single-file, smoke-test passing)
+
+| Toolchain | tinyleaf | llm-rosetta | Platforms | Trade-off |
+|---|---|---|---|---|
+| **Nuitka onefile, musl** | **6.98 MB** | **11.62 MB** | Linux (musl only) | Smallest binary, musl-only |
+| **Nuitka onefile, glibc** | 14.87 MB | 19.95 MB | Linux (glibc) | Broadest Linux compat |
+| **cosmofy APE** | 38.80 MB | 39.32 MB | Linux + macOS + Windows | One binary, all platforms |
+
 ## Key Findings
 
 ### 1. musl binaries are ~2× smaller than glibc for Nuitka onefile
@@ -167,6 +188,12 @@ Nuitka's onefile mode already compresses the payload with zlib (~28.5% compressi
 ### 5. `nofollow=maximal` is unsafe
 
 Aggressively excluding stdlib modules (`logging`, `ssl`, `sqlite3`, `xml`, `ctypes`, `multiprocessing`, etc.) broke smoke tests on both projects. The `standard` nofollow list (test/dev tools: `pytest`, `setuptools`, `tkinter`, `unittest`, `pydoc`, etc.) is the safe maximum.
+
+### 7. cosmofy (Cosmopolitan APE) trades size for universal portability
+
+cosmofy bundles the entire Cosmopolitan Python runtime (~39 MB baseline) plus your app's `.py` files into a single APE binary. The result runs on Linux, macOS, and Windows from one file — no recompilation needed. Build time is near-instant (~3 seconds) since there's no compilation step; it just zips your code into the APE.
+
+The trade-off: **5.5× larger than Nuitka musl onefile** (39 MB vs 7 MB). Choose cosmofy when cross-platform distribution matters more than binary size.
 
 ### 6. Cython `--embed` is not practical for standalone binaries
 

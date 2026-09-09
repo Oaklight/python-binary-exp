@@ -129,6 +129,27 @@
 
 > **关键发现：** 动态链接的 Cython 二进制文件虽然极小（~20 KB），但**不是独立的**——它依赖目标系统上的 `libpython3.x.so`。`libpython` 在 Linux/macOS/Windows 上均非默认安装。静态链接尝试大部分失败，原因是在 CI 中获取和链接静态 CPython 的复杂性。
 
+### Cosmofy（Cosmopolitan APE）— 两个目标项目（4 次构建，2 次通过）
+
+单个 Actually Portable Executable —— 一个二进制文件可在 Linux、macOS 和 Windows 上原生运行。
+
+| 目标项目 | 字节码编译 | 大小 (MB) | 构建时间 | 冒烟测试 | 备注 |
+|---------|-----------|-----------|---------|---------|------|
+| tinyleaf | 否 | **38.80** | 3s | ✅ | 跨平台单文件 |
+| llm-rosetta | 否 | **39.32** | 3s | ✅ | 跨平台单文件 |
+| tinyleaf | 是 | — | — | ❌ | 字节码编译需要 CI 上的 APE 加载器 |
+| llm-rosetta | 是 | — | — | ❌ | 同上 |
+
+> Cosmopolitan Python 基础运行时约 39 MB。应用大小几乎可以忽略 —— tinyleaf 和 llm-rosetta 仅相差 0.5 MB。构建时间几乎为零，因为 cosmofy 只是将 `.py` 文件打包到 APE 的 zip 段中，而非编译。
+
+### 跨工具链汇总（单文件，通过冒烟测试）
+
+| 工具链 | tinyleaf | llm-rosetta | 平台 | 权衡 |
+|---|---|---|---|---|
+| **Nuitka onefile, musl** | **6.98 MB** | **11.62 MB** | Linux（仅 musl） | 最小二进制，仅限 musl |
+| **Nuitka onefile, glibc** | 14.87 MB | 19.95 MB | Linux（glibc） | 最广泛的 Linux 兼容性 |
+| **cosmofy APE** | 38.80 MB | 39.32 MB | Linux + macOS + Windows | 一个二进制，全平台 |
+
 ## 关键发现
 
 ### 1. musl 二进制文件比 glibc 小约 2 倍（Nuitka onefile 模式）
@@ -167,6 +188,12 @@ Nuitka 的 onefile 模式已使用 zlib 内部压缩负载（观测到约 28.5% 
 ### 5. `nofollow=maximal` 不安全
 
 激进排除标准库模块（`logging`、`ssl`、`sqlite3`、`xml`、`ctypes`、`multiprocessing` 等）导致两个项目的冒烟测试均失败。`standard` 排除列表（测试/开发工具：`pytest`、`setuptools`、`tkinter`、`unittest`、`pydoc` 等）是安全上限。
+
+### 7. cosmofy（Cosmopolitan APE）以体积换取通用可移植性
+
+cosmofy 将整个 Cosmopolitan Python 运行时（约 39 MB 基线）加上应用的 `.py` 文件打包为单个 APE 二进制。产物可从同一个文件在 Linux、macOS 和 Windows 上运行——无需重新编译。构建时间几乎为零（约 3 秒），因为没有编译步骤，只是将代码打包到 APE 中。
+
+权衡：**比 Nuitka musl onefile 大 5.5 倍**（39 MB vs 7 MB）。当跨平台分发比二进制大小更重要时选择 cosmofy。
 
 ### 6. Cython `--embed` 不适合生产级独立二进制
 
