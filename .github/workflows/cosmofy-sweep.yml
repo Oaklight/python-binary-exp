@@ -64,7 +64,7 @@ jobs:
           fi
 
           START_TIME=$(date +%s)
-          cosmofy bundle $COSMOFY_FLAGS -o /tmp/cosmofy-dist -v 2>&1 | tee /tmp/cosmofy-log.txt
+          cosmofy bundle $COSMOFY_FLAGS --output-dir /tmp/cosmofy-dist --verbose 2>&1 | tee /tmp/cosmofy-log.txt
           COSMOFY_EXIT=$?
           END_TIME=$(date +%s)
           BUILD_TIME=$((END_TIME - START_TIME))
