@@ -52,11 +52,11 @@ jobs:
               git clone --depth=1 https://github.com/oaklight/tinyleaf.git /tmp/target
               ;;
           esac
-          echo "TARGET_DIR=/tmp/target" >> "$GITHUB_ENV"
 
       - name: Build with cosmofy
+        id: build
         run: |
-          cd "$TARGET_DIR"
+          cd /tmp/target
 
           COSMOFY_FLAGS=""
           if [ "${{ matrix.compile_bytecode }}" = "true" ]; then
@@ -64,26 +64,37 @@ jobs:
           fi
 
           START_TIME=$(date +%s)
-          cosmofy bundle $COSMOFY_FLAGS --output-format json -o /tmp/cosmofy-out | tee /tmp/cosmofy-result.json
+          cosmofy bundle $COSMOFY_FLAGS -o /tmp/cosmofy-dist -v 2>&1 | tee /tmp/cosmofy-log.txt
+          COSMOFY_EXIT=$?
           END_TIME=$(date +%s)
           BUILD_TIME=$((END_TIME - START_TIME))
 
-          echo "BUILD_TIME=$BUILD_TIME" >> "$GITHUB_ENV"
+          echo "build_time=$BUILD_TIME" >> "$GITHUB_OUTPUT"
+          echo "cosmofy_exit=$COSMOFY_EXIT" >> "$GITHUB_OUTPUT"
+
+          echo "=== cosmofy output dir ==="
+          find /tmp/cosmofy-dist -type f 2>/dev/null || echo "No output directory"
+          ls -lh /tmp/cosmofy-dist/ 2>/dev/null || true
 
       - name: Collect results
+        if: always()
         run: |
           TARGET=${{ matrix.target }}
+          BUILD_TIME="${{ steps.build.outputs.build_time }}"
+          BUILD_TIME="${BUILD_TIME:-0}"
           mkdir -p build
 
-          BINARY=$(find /tmp/cosmofy-out -type f -executable 2>/dev/null | head -1)
+          BINARY="$(find /tmp/cosmofy-dist -type f -print -quit 2>/dev/null || true)"
+
           if [ -z "$BINARY" ]; then
-            BINARY=$(find /tmp/cosmofy-out -type f | head -1)
+            echo "No binary in /tmp/cosmofy-dist, checking default dist/ in project..."
+            BINARY="$(find /tmp/target/dist -type f -print -quit 2>/dev/null || true)"
           fi
 
           if [ -z "$BINARY" ]; then
-            echo "ERROR: No binary found in /tmp/cosmofy-out"
-            find /tmp/cosmofy-out -type f 2>/dev/null || echo "Directory empty"
-            # Write failure result
+            echo "ERROR: No binary found anywhere"
+            echo "=== cosmofy log ==="
+            cat /tmp/cosmofy-log.txt 2>/dev/null || echo "no log"
             cat > "build/result-cosmofy-${TARGET}-${{ matrix.compile_bytecode }}.json" <<EOJSON
           {
             "target": "$TARGET",
@@ -91,12 +102,12 @@ jobs:
             "compile_bytecode": ${{ matrix.compile_bytecode }},
             "libc": "cosmopolitan",
             "binary_size_bytes": 0,
-            "build_time_seconds": ${BUILD_TIME},
+            "build_time_seconds": $BUILD_TIME,
             "smoke_test_passed": false,
             "error": "no binary found"
           }
           EOJSON
-            exit 1
+            exit 0
           fi
 
           BINARY_SIZE=$(stat -c%s "$BINARY" 2>/dev/null || stat -f%z "$BINARY")
@@ -109,7 +120,7 @@ jobs:
             SMOKE_PASSED="true"
             echo "Smoke test PASSED"
           else
-            echo "Smoke test FAILED"
+            echo "Smoke test FAILED (may need APE loader on this platform)"
           fi
 
           COSMOFY_VERSION="$(cosmofy --version 2>&1 || echo unknown)"
@@ -121,14 +132,17 @@ jobs:
             "compile_bytecode": ${{ matrix.compile_bytecode }},
             "libc": "cosmopolitan",
             "binary_size_bytes": $BINARY_SIZE,
-            "build_time_seconds": ${BUILD_TIME},
+            "build_time_seconds": $BUILD_TIME,
             "smoke_test_passed": $SMOKE_PASSED,
             "cosmofy_version": "$COSMOFY_VERSION",
-            "binary_path": "$BINARY"
+            "binary_path": "$BINARY",
+            "binary_size_mb": "$SIZE_MB"
           }
           EOJSON
 
-          cp "$BINARY" "build/${TARGET}-cosmofy$(if [ "${{ matrix.compile_bytecode }}" = "true" ]; then echo "-bc"; fi)"
+          SUFFIX=""
+          if [ "${{ matrix.compile_bytecode }}" = "true" ]; then SUFFIX="-bc"; fi
+          cp "$BINARY" "build/${TARGET}-cosmofy${SUFFIX}"
 
           echo "=== Result ==="
           cat "build/result-cosmofy-${TARGET}-${{ matrix.compile_bytecode }}.json"
@@ -152,14 +166,15 @@ jobs:
           RESULT_FILE=$(ls build/result-*.json 2>/dev/null | head -1)
           if [ -n "$RESULT_FILE" ]; then
             RESULT=$(cat "$RESULT_FILE")
-            SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "N/A"')
-            TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "N/A"')
-            SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "N/A"')
-            if [ "$SIZE" != "N/A" ] && [ "$SIZE" != "null" ] && [ "$SIZE" != "0" ]; then
+            SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "0"')
+            TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "0"')
+            SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "false"')
+            ERROR=$(echo "$RESULT" | jq -r '.error // ""')
+            if [ "$SIZE" != "0" ] && [ "$SIZE" != "null" ]; then
               SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
               SIZE_DISPLAY="${SIZE_MB} MB"
             else
-              SIZE_DISPLAY="N/A"
+              SIZE_DISPLAY="N/A (build failed: ${ERROR})"
             fi
             echo "### ${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -171,6 +186,4 @@ jobs:
             echo "| Binary Size | ${SIZE_DISPLAY} |" >> "$GITHUB_STEP_SUMMARY"
             echo "| Build Time | ${TIME}s |" >> "$GITHUB_STEP_SUMMARY"
             echo "| Smoke Test | ${SMOKE} |" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### ${{ matrix.label }} — No result file found" >> "$GITHUB_STEP_SUMMARY"
           fi
