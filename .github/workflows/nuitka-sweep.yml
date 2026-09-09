@@ -1,0 +1,181 @@
+name: Nuitka Parameter Sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Targets to build (comma-separated: llm-rosetta,tinyleaf or all)"
+        default: "all"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        run: |
+          TARGETS="${{ inputs.targets || 'all' }}"
+          if [ "$TARGETS" = "all" ]; then
+            MATRIX=$(cat configs/nuitka_matrix.json)
+          else
+            MATRIX=$(cat configs/nuitka_matrix.json | jq --arg targets "$TARGETS" '{
+              include: [.include[] | select(.target as $t | ($targets | split(",") | map(. == $t) | any))]
+            }')
+          fi
+          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "Jobs: $(echo "$MATRIX" | jq '.include | length')"
+
+  build:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    name: "${{ matrix.label }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          pip install --quiet "nuitka[onefile]" ordered-set
+          if [ "${{ matrix.libc }}" = "glibc" ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq patchelf
+          fi
+          if [ "${{ matrix.upx }}" = "true" ]; then
+            sudo apt-get update -qq || true
+            sudo apt-get install -y -qq upx-ucl || sudo apt-get install -y -qq upx || true
+          fi
+
+      - name: Install target (${{ matrix.target }})
+        if: matrix.libc == 'glibc'
+        run: |
+          TARGET=${{ matrix.target }} INSTALL_MODE=pip bash scripts/prepare_target.sh
+
+      - name: Build (glibc)
+        if: matrix.libc == 'glibc'
+        run: |
+          export TARGET=${{ matrix.target }}
+          export MODE=${{ matrix.mode }}
+          export LTO=${{ matrix.lto }}
+          export PYTHON_FLAGS=${{ matrix.python_flags }}
+          export NOFOLLOW=${{ matrix.nofollow }}
+          export UPX=${{ matrix.upx }}
+          export LIBC=glibc
+          export OUTPUT_DIR=build
+          bash scripts/build_nuitka.sh
+
+      - name: Build (musl via Alpine Docker)
+        if: matrix.libc == 'musl'
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace:ro" \
+            -v "${{ github.workspace }}/build:/output" \
+            -e TARGET=${{ matrix.target }} \
+            -e MODE=${{ matrix.mode }} \
+            -e LTO=${{ matrix.lto }} \
+            -e PYTHON_FLAGS=${{ matrix.python_flags }} \
+            -e NOFOLLOW=${{ matrix.nofollow }} \
+            -e UPX=${{ matrix.upx }} \
+            -e LIBC=musl \
+            -e OUTPUT_DIR=/output \
+            python:3.12-alpine sh -c '
+              apk add --no-cache gcc musl-dev python3-dev git binutils
+              pip install --break-system-packages --quiet "nuitka[onefile]" ordered-set patchelf
+              pip install --break-system-packages --quiet "$TARGET"
+
+              ENTRY_PACKAGE=""
+              SMOKE_CMD="--help"
+              case "$TARGET" in
+                llm-rosetta)
+                  ENTRY_PACKAGE="llm_rosetta"
+                  printf "from llm_rosetta.gateway import main\nmain()\n" > /tmp/target_entry.py
+                  ;;
+                tinyleaf)
+                  ENTRY_PACKAGE="tinyleaf"
+                  printf "from tinyleaf.cli import main\nmain()\n" > /tmp/target_entry.py
+                  ;;
+              esac
+              echo "$ENTRY_PACKAGE" > /tmp/target_entry_package.txt
+              echo "$SMOKE_CMD" > /tmp/target_smoke_cmd.txt
+
+              cp -r /workspace/scripts /tmp/scripts
+              bash /tmp/scripts/build_nuitka.sh
+            '
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "nuitka-${{ matrix.label }}"
+          path: |
+            build/result-*.json
+            build/${{ matrix.target }}-*
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Build summary
+        if: always()
+        run: |
+          if [ -f build/result-*.json ]; then
+            RESULT=$(cat build/result-*.json 2>/dev/null | head -1)
+            SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "N/A"')
+            TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "N/A"')
+            SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "N/A"')
+            if [ "$SIZE" != "N/A" ] && [ "$SIZE" != "null" ]; then
+              SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
+              SIZE_DISPLAY="${SIZE_MB} MB"
+            else
+              SIZE_DISPLAY="N/A"
+            fi
+            echo "### ${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Target | ${{ matrix.target }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Mode | ${{ matrix.mode }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| LTO | ${{ matrix.lto }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Python Flags | ${{ matrix.python_flags }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Nofollow | ${{ matrix.nofollow }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| UPX | ${{ matrix.upx }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Libc | ${{ matrix.libc }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Binary Size | ${SIZE_DISPLAY} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Build Time | ${TIME}s |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Smoke Test | ${SMOKE} |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ${{ matrix.label }} — No result file found" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  analyze:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+          pattern: "nuitka-*"
+          merge-multiple: true
+
+      - name: Run analysis
+        run: |
+          python scripts/analyze_results.py results | tee "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuitka-analysis
+          path: results/analysis.md
+          retention-days: 90

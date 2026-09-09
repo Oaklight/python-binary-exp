@@ -1,0 +1,43 @@
+{
+  "include": [
+    {"target": "tinyleaf", "cc_opt": "-O2", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-leaf-O2-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-leaf-Os-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-O3", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-leaf-O3-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-O2", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-leaf-O2-musl"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-leaf-Os-musl"},
+    {"target": "tinyleaf", "cc_opt": "-O3", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-leaf-O3-musl"},
+
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system",                    "link": "static", "upx": "false", "libc": "musl",  "label": "cy-leaf-static-sys-musl"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "python-build-standalone",    "link": "static", "upx": "false", "libc": "glibc", "label": "cy-leaf-static-pbs-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "source",                     "link": "static", "upx": "false", "libc": "glibc", "label": "cy-leaf-static-src-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "source",                     "link": "static", "upx": "false", "libc": "musl",  "label": "cy-leaf-static-src-musl"},
+
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "true",  "libc": "glibc", "label": "cy-leaf-Os-upx-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "true",  "libc": "musl",  "label": "cy-leaf-Os-upx-musl"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system",                    "link": "static", "upx": "true",  "libc": "musl",  "label": "cy-leaf-static-upx-musl"},
+    {"target": "tinyleaf", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "python-build-standalone",    "link": "static", "upx": "true",  "libc": "glibc", "label": "cy-leaf-static-pbs-upx-glibc"},
+
+    {"target": "tinyleaf", "cc_opt": "-O2", "lto": "no",  "strip": "no",  "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-leaf-noopt-glibc"},
+    {"target": "tinyleaf", "cc_opt": "-O2", "lto": "no",  "strip": "no",  "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-leaf-noopt-musl"},
+
+    {"target": "llm-rosetta", "cc_opt": "-O2", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-rosetta-O2-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-rosetta-Os-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-O3", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-rosetta-O3-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-O2", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-rosetta-O2-musl"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-rosetta-Os-musl"},
+    {"target": "llm-rosetta", "cc_opt": "-O3", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-rosetta-O3-musl"},
+
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system",                    "link": "static", "upx": "false", "libc": "musl",  "label": "cy-rosetta-static-sys-musl"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "python-build-standalone",    "link": "static", "upx": "false", "libc": "glibc", "label": "cy-rosetta-static-pbs-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "source",                     "link": "static", "upx": "false", "libc": "glibc", "label": "cy-rosetta-static-src-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "source",                     "link": "static", "upx": "false", "libc": "musl",  "label": "cy-rosetta-static-src-musl"},
+
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "true",  "libc": "glibc", "label": "cy-rosetta-Os-upx-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system", "link": "dynamic", "upx": "true",  "libc": "musl",  "label": "cy-rosetta-Os-upx-musl"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "system",                    "link": "static", "upx": "true",  "libc": "musl",  "label": "cy-rosetta-static-upx-musl"},
+    {"target": "llm-rosetta", "cc_opt": "-Os", "lto": "yes", "strip": "yes", "cpython_source": "python-build-standalone",    "link": "static", "upx": "true",  "libc": "glibc", "label": "cy-rosetta-static-pbs-upx-glibc"},
+
+    {"target": "llm-rosetta", "cc_opt": "-O2", "lto": "no",  "strip": "no",  "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "glibc", "label": "cy-rosetta-noopt-glibc"},
+    {"target": "llm-rosetta", "cc_opt": "-O2", "lto": "no",  "strip": "no",  "cpython_source": "system", "link": "dynamic", "upx": "false", "libc": "musl",  "label": "cy-rosetta-noopt-musl"}
+  ]
+}
