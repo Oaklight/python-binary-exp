@@ -91,7 +91,7 @@ jobs:
             -e LIBC=musl \
             -e OUTPUT_DIR=/output \
             python:3.12-alpine sh -c '
-              apk add --no-cache gcc musl-dev python3-dev git binutils
+              apk add --no-cache gcc musl-dev python3-dev git binutils bash
               pip install --break-system-packages --quiet "nuitka[onefile]" ordered-set patchelf
               pip install --break-system-packages --quiet "$TARGET"
 
@@ -128,8 +128,9 @@ jobs:
       - name: Build summary
         if: always()
         run: |
-          if [ -f build/result-*.json ]; then
-            RESULT=$(cat build/result-*.json 2>/dev/null | head -1)
+          RESULT_FILE=$(ls build/result-*.json 2>/dev/null | head -1)
+          if [ -n "$RESULT_FILE" ]; then
+            RESULT=$(cat "$RESULT_FILE")
             SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "N/A"')
             TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "N/A"')
             SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "N/A"')

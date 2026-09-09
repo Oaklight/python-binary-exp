@@ -94,7 +94,7 @@ jobs:
             -e LIBC=musl \
             -e OUTPUT_DIR=/output \
             python:3.12-alpine sh -c '
-              apk add --no-cache gcc musl-dev python3-dev git binutils
+              apk add --no-cache gcc musl-dev python3-dev git binutils bash
               if [ "$LINK" = "static" ]; then
                 apk add --no-cache python3-libs-static zlib-static || true
               fi
@@ -137,9 +137,9 @@ jobs:
       - name: Build summary
         if: always()
         run: |
-          RESULT_FILE=$(ls build/result-*.json 2>/dev/null | head -1)
-          if [ -n "$RESULT_FILE" ]; then
-            RESULT=$(cat "$RESULT_FILE")
+          RESULT_FILE_FOUND=$(ls build/result-*.json 2>/dev/null | head -1)
+          if [ -n "$RESULT_FILE_FOUND" ]; then
+            RESULT=$(cat "$RESULT_FILE_FOUND")
             SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "N/A"')
             TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "N/A"')
             SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "N/A"')

@@ -24,17 +24,25 @@ STATIC_LIBDIR=""
 setup_python_build_standalone() {
     echo "=== Setting up python-build-standalone ==="
     local PBS_DIR="/tmp/pbs-python"
-    if [ ! -d "$PBS_DIR" ]; then
+    if [ ! -d "$PBS_DIR/bin" ]; then
         local ARCH
         ARCH="$(uname -m)"
-        local PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/latest/download/cpython-3.12.8+20250213-${ARCH}-unknown-linux-gnu-install_only_stripped.tar.gz"
         mkdir -p "$PBS_DIR"
-        echo "Downloading python-build-standalone..."
-        curl -sL "$PBS_URL" | tar xz -C "$PBS_DIR" --strip-components=1 || {
-            echo "Failed to download PBS, trying alternate URL pattern..."
-            local PBS_URL2="https://github.com/astral-sh/python-build-standalone/releases/latest/download/cpython-3.12.8+20250213-${ARCH}-unknown-linux-gnu-install_only.tar.gz"
-            curl -sL "$PBS_URL2" | tar xz -C "$PBS_DIR" --strip-components=1
-        }
+        echo "Discovering latest python-build-standalone release..."
+        local RELEASE_TAG
+        RELEASE_TAG="$(curl -sI https://github.com/astral-sh/python-build-standalone/releases/latest | grep -i '^location:' | grep -oE '[0-9]{8}' | tail -1)"
+        if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="20260901"
+        fi
+        local PY_VER="3.12"
+        local FULL_VER
+        FULL_VER="$(curl -sL "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/${RELEASE_TAG}" | grep -oE "cpython-${PY_VER}\.[0-9]+" | head -1 | sed "s/cpython-//")"
+        if [ -z "$FULL_VER" ]; then
+            FULL_VER="3.12.14"
+        fi
+        local PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${RELEASE_TAG}/cpython-${FULL_VER}+${RELEASE_TAG}-${ARCH}-unknown-linux-gnu-install_only.tar.gz"
+        echo "Downloading: $PBS_URL"
+        curl -sL "$PBS_URL" | tar xz -C "$PBS_DIR" --strip-components=1
     fi
     PYTHON_BIN="$PBS_DIR/bin/python3"
     PYTHON_CONFIG="$PBS_DIR/bin/python3-config"
