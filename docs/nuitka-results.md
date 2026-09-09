@@ -72,25 +72,21 @@ Sorted by binary size. Only smoke-test-passing configs are viable.
 
 ## Recommended Configuration
 
-### Simple projects (tinyleaf-like)
-
-```bash
-python -m nuitka --onefile --lto=yes \
-  --python-flag=-O --python-flag=no_docstrings \
-  --python-flag=no_warnings --python-flag=no_annotations \
-  --python-flag=no_asserts \
-  --nofollow-import-to=pytest,setuptools,pip,_pytest,tkinter,unittest,pydoc,doctest,test,distutils,ensurepip,idlelib,lib2to3,turtle,turtledemo,xmlrpc,curses \
-  --include-package=tinyleaf entry.py
-```
-
-### Complex projects (llm-rosetta-like)
+Both projects use the same flags for consistency and safety:
 
 ```bash
 python -m nuitka --onefile --lto=yes \
   --python-flag=-O --python-flag=no_docstrings \
   --python-flag=no_warnings \
   --nofollow-import-to=pytest,setuptools,pip,_pytest,tkinter,unittest,pydoc,doctest,test,distutils,ensurepip,idlelib,lib2to3,turtle,turtledemo,xmlrpc,curses \
-  --include-package=llm_rosetta entry.py
+  --include-package=<your_package> entry.py
 ```
 
-> Do NOT add `no_annotations` or `no_asserts` without verifying smoke test.
+### Why `no_annotations` and `no_asserts` are excluded
+
+Even though tinyleaf passes smoke tests with these flags (~5% savings), we deliberately exclude them for consistency with llm-rosetta. The flags break llm-rosetta because:
+
+- **`no_annotations`**: llm-rosetta uses `typing.get_type_hints()` at runtime for type validation (`_vendor/validate.py`), and `@dataclass` classes that rely on `__annotations__` for field definitions. Stripping annotations silently breaks both systems.
+- **`no_asserts`**: llm-rosetta uses `assert _config is not None` as startup initialization guards (`gateway/app.py`). Without assertions, the gateway proceeds with `None` config → crash.
+
+Applying the same conservative flags across projects avoids maintenance landmines if tinyleaf later adds dataclasses, runtime type validation, or initialization guards.
