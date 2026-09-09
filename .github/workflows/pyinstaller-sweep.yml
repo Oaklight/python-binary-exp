@@ -1,0 +1,235 @@
+name: PyInstaller Parameter Sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Targets to build (comma-separated: llm-rosetta,tinyleaf or all)"
+        default: "all"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          TARGETS="${{ inputs.targets || 'all' }}"
+          MATRIX=$(cat configs/pyinstaller_matrix.json)
+          if [ "$TARGETS" != "all" ]; then
+            MATRIX=$(echo "$MATRIX" | jq --arg targets "$TARGETS" '{
+              include: [.include[] | select(.target as $t | ($targets | split(",") | map(. == $t) | any))]
+            }')
+          fi
+          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "Jobs: $(echo "$MATRIX" | jq '.include | length')"
+
+  build:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    name: "${{ matrix.label }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (glibc)
+        if: matrix.libc == 'glibc'
+        run: |
+          pip install --quiet pyinstaller "${{ matrix.target }}"
+          if [ "${{ matrix.upx }}" = "true" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq upx-ucl || sudo apt-get install -y -qq upx || true
+          fi
+
+      - name: Build (glibc)
+        if: matrix.libc == 'glibc'
+        run: |
+          TARGET=${{ matrix.target }}
+          mkdir -p build
+
+          case "$TARGET" in
+            llm-rosetta) printf 'from llm_rosetta.gateway import main\nmain()\n' > /tmp/entry.py ;;
+            tinyleaf)    printf 'from tinyleaf.cli import main\nmain()\n' > /tmp/entry.py ;;
+          esac
+
+          FLAGS="--clean --noconfirm"
+          FLAGS="$FLAGS --distpath build/dist --workpath build/work --specpath build"
+
+          if [ "${{ matrix.mode }}" = "onefile" ]; then FLAGS="$FLAGS --onefile"; fi
+          if [ "${{ matrix.mode }}" = "onedir" ]; then FLAGS="$FLAGS --onedir"; fi
+          if [ "${{ matrix.strip }}" = "true" ]; then FLAGS="$FLAGS --strip"; fi
+          if [ "${{ matrix.upx }}" = "true" ]; then FLAGS="$FLAGS --upx-dir /usr/bin"; fi
+
+          EXCLUDES="pytest setuptools pip _pytest tkinter unittest pydoc doctest test distutils ensurepip idlelib lib2to3 turtle turtledemo xmlrpc curses"
+          for mod in $EXCLUDES; do FLAGS="$FLAGS --exclude-module $mod"; done
+
+          HIDDEN=""
+          case "$TARGET" in
+            llm-rosetta) HIDDEN="--hidden-import=llm_rosetta" ;;
+            tinyleaf)    HIDDEN="--hidden-import=tinyleaf" ;;
+          esac
+
+          echo "=== PyInstaller flags: $FLAGS $HIDDEN ==="
+          START_TIME=$(date +%s)
+          pyinstaller $FLAGS $HIDDEN --name "${TARGET}" /tmp/entry.py
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+
+          if [ "${{ matrix.mode }}" = "onefile" ]; then
+            BINARY="build/dist/${TARGET}"
+          else
+            BINARY="build/dist/${TARGET}/${TARGET}"
+          fi
+
+          BINARY_SIZE=0
+          SMOKE_PASSED="false"
+          if [ -f "$BINARY" ]; then
+            BINARY_SIZE=$(stat -c%s "$BINARY")
+            chmod +x "$BINARY"
+            if timeout 10 "$BINARY" --help >/dev/null 2>&1; then
+              SMOKE_PASSED="true"
+            fi
+          fi
+
+          PI_VERSION="$(pyinstaller --version 2>&1)"
+
+          cat > "build/result-pyinstaller-${TARGET}-${{ matrix.mode }}-${{ matrix.strip }}-${{ matrix.upx }}-${{ matrix.libc }}.json" <<EOJSON
+          {
+            "target": "$TARGET",
+            "compiler": "pyinstaller",
+            "mode": "${{ matrix.mode }}",
+            "strip": "${{ matrix.strip }}",
+            "upx": ${{ matrix.upx }},
+            "libc": "${{ matrix.libc }}",
+            "binary_size_bytes": $BINARY_SIZE,
+            "build_time_seconds": $BUILD_TIME,
+            "smoke_test_passed": $SMOKE_PASSED,
+            "python_version": "$(python --version 2>&1)",
+            "compiler_version": "$PI_VERSION"
+          }
+          EOJSON
+          echo "=== Result ==="
+          cat build/result-*.json
+          echo "Size: $(echo "scale=2; $BINARY_SIZE / 1048576" | bc) MB"
+
+      - name: Build (musl via Alpine Docker)
+        if: matrix.libc == 'musl'
+        run: |
+          mkdir -p build
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace:ro" \
+            -v "${{ github.workspace }}/build:/output" \
+            -e TARGET=${{ matrix.target }} \
+            -e MODE=${{ matrix.mode }} \
+            -e STRIP=${{ matrix.strip }} \
+            -e UPX=${{ matrix.upx }} \
+            python:3.12-alpine sh -c '
+              apk add --no-cache gcc musl-dev python3-dev binutils bash
+              pip install --break-system-packages --quiet pyinstaller "$TARGET"
+
+              case "$TARGET" in
+                llm-rosetta) printf "from llm_rosetta.gateway import main\nmain()\n" > /tmp/entry.py ;;
+                tinyleaf)    printf "from tinyleaf.cli import main\nmain()\n" > /tmp/entry.py ;;
+              esac
+
+              FLAGS="--clean --noconfirm --distpath /output/dist --workpath /tmp/work --specpath /tmp"
+              if [ "$MODE" = "onefile" ]; then FLAGS="$FLAGS --onefile"; fi
+              if [ "$MODE" = "onedir" ]; then FLAGS="$FLAGS --onedir"; fi
+              if [ "$STRIP" = "true" ]; then FLAGS="$FLAGS --strip"; fi
+
+              EXCLUDES="pytest setuptools pip _pytest tkinter unittest pydoc doctest test distutils ensurepip idlelib lib2to3 turtle turtledemo xmlrpc curses"
+              for mod in $EXCLUDES; do FLAGS="$FLAGS --exclude-module $mod"; done
+
+              case "$TARGET" in
+                llm-rosetta) FLAGS="$FLAGS --hidden-import=llm_rosetta" ;;
+                tinyleaf)    FLAGS="$FLAGS --hidden-import=tinyleaf" ;;
+              esac
+
+              START_TIME=$(date +%s)
+              pyinstaller $FLAGS --name "$TARGET" /tmp/entry.py
+              END_TIME=$(date +%s)
+              BUILD_TIME=$((END_TIME - START_TIME))
+
+              if [ "$MODE" = "onefile" ]; then
+                BINARY="/output/dist/$TARGET"
+              else
+                BINARY="/output/dist/$TARGET/$TARGET"
+              fi
+
+              BINARY_SIZE=0
+              SMOKE_PASSED="false"
+              if [ -f "$BINARY" ]; then
+                BINARY_SIZE=$(stat -c%s "$BINARY")
+                chmod +x "$BINARY"
+                if timeout 10 "$BINARY" --help >/dev/null 2>&1; then
+                  SMOKE_PASSED="true"
+                fi
+              fi
+
+              PI_VERSION="$(pyinstaller --version 2>&1)"
+
+              cat > "/output/result-pyinstaller-${TARGET}-${MODE}-${STRIP}-${UPX}-musl.json" <<EOJSON
+              {
+                "target": "$TARGET",
+                "compiler": "pyinstaller",
+                "mode": "$MODE",
+                "strip": "$STRIP",
+                "upx": $UPX,
+                "libc": "musl",
+                "binary_size_bytes": $BINARY_SIZE,
+                "build_time_seconds": $BUILD_TIME,
+                "smoke_test_passed": $SMOKE_PASSED,
+                "python_version": "$(python --version 2>&1)",
+                "compiler_version": "$PI_VERSION"
+              }
+EOJSON
+              echo "=== Result ==="
+              cat /output/result-*.json
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "pyinstaller-${{ matrix.label }}"
+          path: |
+            build/result-*.json
+            build/dist/${{ matrix.target }}
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Build summary
+        if: always()
+        run: |
+          RESULT_FILE=$(ls build/result-*.json 2>/dev/null | head -1)
+          if [ -n "$RESULT_FILE" ]; then
+            RESULT=$(cat "$RESULT_FILE")
+            SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "0"')
+            TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "0"')
+            SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "false"')
+            if [ "$SIZE" != "0" ] && [ "$SIZE" != "null" ]; then
+              SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
+              SIZE_DISPLAY="${SIZE_MB} MB"
+            else
+              SIZE_DISPLAY="N/A"
+            fi
+            echo "### ${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Binary Size | ${SIZE_DISPLAY} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Build Time | ${TIME}s |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Smoke Test | ${SMOKE} |" >> "$GITHUB_STEP_SUMMARY"
+          fi

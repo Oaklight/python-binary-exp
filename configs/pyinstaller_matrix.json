@@ -1,0 +1,17 @@
+{
+  "include": [
+    {"target": "tinyleaf",    "mode": "onefile", "strip": "true",  "upx": "false", "libc": "glibc", "label": "pi-leaf-onefile-glibc"},
+    {"target": "tinyleaf",    "mode": "onefile", "strip": "true",  "upx": "false", "libc": "musl",  "label": "pi-leaf-onefile-musl"},
+    {"target": "tinyleaf",    "mode": "onefile", "strip": "true",  "upx": "true",  "libc": "glibc", "label": "pi-leaf-onefile-upx-glibc"},
+    {"target": "tinyleaf",    "mode": "onefile", "strip": "false", "upx": "false", "libc": "glibc", "label": "pi-leaf-onefile-nostrip-glibc"},
+    {"target": "tinyleaf",    "mode": "onedir",  "strip": "true",  "upx": "false", "libc": "glibc", "label": "pi-leaf-onedir-glibc"},
+    {"target": "tinyleaf",    "mode": "onedir",  "strip": "true",  "upx": "false", "libc": "musl",  "label": "pi-leaf-onedir-musl"},
+
+    {"target": "llm-rosetta", "mode": "onefile", "strip": "true",  "upx": "false", "libc": "glibc", "label": "pi-rosetta-onefile-glibc"},
+    {"target": "llm-rosetta", "mode": "onefile", "strip": "true",  "upx": "false", "libc": "musl",  "label": "pi-rosetta-onefile-musl"},
+    {"target": "llm-rosetta", "mode": "onefile", "strip": "true",  "upx": "true",  "libc": "glibc", "label": "pi-rosetta-onefile-upx-glibc"},
+    {"target": "llm-rosetta", "mode": "onefile", "strip": "false", "upx": "false", "libc": "glibc", "label": "pi-rosetta-onefile-nostrip-glibc"},
+    {"target": "llm-rosetta", "mode": "onedir",  "strip": "true",  "upx": "false", "libc": "glibc", "label": "pi-rosetta-onedir-glibc"},
+    {"target": "llm-rosetta", "mode": "onedir",  "strip": "true",  "upx": "false", "libc": "musl",  "label": "pi-rosetta-onedir-musl"}
+  ]
+}

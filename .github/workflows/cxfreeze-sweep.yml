@@ -1,0 +1,251 @@
+name: cx_Freeze Parameter Sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Targets to build (comma-separated: llm-rosetta,tinyleaf or all)"
+        default: "all"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          TARGETS="${{ inputs.targets || 'all' }}"
+          MATRIX=$(cat configs/cxfreeze_matrix.json)
+          if [ "$TARGETS" != "all" ]; then
+            MATRIX=$(echo "$MATRIX" | jq --arg targets "$TARGETS" '{
+              include: [.include[] | select(.target as $t | ($targets | split(",") | map(. == $t) | any))]
+            }')
+          fi
+          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "Jobs: $(echo "$MATRIX" | jq '.include | length')"
+
+  build:
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    name: "${{ matrix.label }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (glibc)
+        if: matrix.libc == 'glibc'
+        run: |
+          pip install --quiet cx_Freeze "${{ matrix.target }}"
+
+      - name: Build (glibc)
+        if: matrix.libc == 'glibc'
+        run: |
+          TARGET=${{ matrix.target }}
+          mkdir -p build
+
+          case "$TARGET" in
+            llm-rosetta)
+              ENTRY_MODULE="llm_rosetta.gateway"
+              ENTRY_FUNC="main"
+              ;;
+            tinyleaf)
+              ENTRY_MODULE="tinyleaf.cli"
+              ENTRY_FUNC="main"
+              ;;
+          esac
+
+          printf "from ${ENTRY_MODULE} import ${ENTRY_FUNC}\n${ENTRY_FUNC}()\n" > /tmp/entry.py
+
+          EXCLUDES="pytest,setuptools,pip,_pytest,tkinter,unittest,pydoc,doctest,test,distutils,ensurepip,idlelib,lib2to3,turtle,turtledemo,xmlrpc,curses"
+
+          cat > /tmp/setup_cx.py <<PYEOF
+          import sys
+          from cx_Freeze import setup, Executable
+
+          build_options = {
+              "excludes": "$EXCLUDES".split(","),
+              "optimize": ${{ matrix.optimize }},
+              "build_exe": "build/cxdist",
+          }
+
+          setup(
+              name="$TARGET",
+              version="0.0.1",
+              options={"build_exe": build_options},
+              executables=[Executable("/tmp/entry.py", target_name="$TARGET")],
+          )
+          PYEOF
+
+          START_TIME=$(date +%s)
+          python /tmp/setup_cx.py build_exe
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+
+          BINARY="build/cxdist/${TARGET}"
+          if [ ! -f "$BINARY" ]; then
+            BINARY=$(find build/cxdist -type f -executable -name "${TARGET}*" -print -quit 2>/dev/null || true)
+          fi
+
+          BINARY_SIZE=0
+          SMOKE_PASSED="false"
+          DIR_SIZE=0
+          if [ -n "$BINARY" ] && [ -f "$BINARY" ]; then
+            BINARY_SIZE=$(stat -c%s "$BINARY")
+            DIR_SIZE=$(du -sb build/cxdist | cut -f1)
+            chmod +x "$BINARY"
+            if timeout 10 "$BINARY" --help >/dev/null 2>&1; then
+              SMOKE_PASSED="true"
+            fi
+          fi
+
+          CX_VERSION="$(python -c 'import cx_Freeze; print(cx_Freeze.__version__)' 2>/dev/null || echo unknown)"
+
+          cat > "build/result-cxfreeze-${TARGET}-${{ matrix.optimize }}-${{ matrix.libc }}.json" <<EOJSON
+          {
+            "target": "$TARGET",
+            "compiler": "cx_Freeze",
+            "optimize": ${{ matrix.optimize }},
+            "libc": "${{ matrix.libc }}",
+            "binary_size_bytes": $BINARY_SIZE,
+            "dir_size_bytes": $DIR_SIZE,
+            "build_time_seconds": $BUILD_TIME,
+            "smoke_test_passed": $SMOKE_PASSED,
+            "python_version": "$(python --version 2>&1)",
+            "compiler_version": "$CX_VERSION"
+          }
+          EOJSON
+          echo "=== Result ==="
+          cat build/result-*.json
+          echo "Binary: $(echo "scale=2; $BINARY_SIZE / 1048576" | bc) MB, Dir: $(echo "scale=2; $DIR_SIZE / 1048576" | bc) MB"
+
+      - name: Build (musl via Alpine Docker)
+        if: matrix.libc == 'musl'
+        run: |
+          mkdir -p build
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace:ro" \
+            -v "${{ github.workspace }}/build:/output" \
+            -e TARGET=${{ matrix.target }} \
+            -e OPTIMIZE=${{ matrix.optimize }} \
+            python:3.12-alpine sh -c '
+              apk add --no-cache gcc musl-dev python3-dev binutils bash patchelf
+              pip install --break-system-packages --quiet cx_Freeze "$TARGET"
+
+              case "$TARGET" in
+                llm-rosetta)
+                  ENTRY_MODULE="llm_rosetta.gateway"
+                  ENTRY_FUNC="main"
+                  ;;
+                tinyleaf)
+                  ENTRY_MODULE="tinyleaf.cli"
+                  ENTRY_FUNC="main"
+                  ;;
+              esac
+
+              printf "from ${ENTRY_MODULE} import ${ENTRY_FUNC}\n${ENTRY_FUNC}()\n" > /tmp/entry.py
+
+              EXCLUDES="pytest,setuptools,pip,_pytest,tkinter,unittest,pydoc,doctest,test,distutils,ensurepip,idlelib,lib2to3,turtle,turtledemo,xmlrpc,curses"
+
+              cat > /tmp/setup_cx.py <<PYEOF
+              import sys
+              from cx_Freeze import setup, Executable
+              build_options = {
+                  "excludes": "${EXCLUDES}".split(","),
+                  "optimize": ${OPTIMIZE},
+                  "build_exe": "/output/cxdist",
+              }
+              setup(
+                  name="${TARGET}",
+                  version="0.0.1",
+                  options={"build_exe": build_options},
+                  executables=[Executable("/tmp/entry.py", target_name="${TARGET}")],
+              )
+PYEOF
+
+              START_TIME=$(date +%s)
+              python /tmp/setup_cx.py build_exe
+              END_TIME=$(date +%s)
+              BUILD_TIME=$((END_TIME - START_TIME))
+
+              BINARY="/output/cxdist/${TARGET}"
+              if [ ! -f "$BINARY" ]; then
+                BINARY=$(find /output/cxdist -type f -executable -name "${TARGET}*" -print -quit 2>/dev/null || true)
+              fi
+
+              BINARY_SIZE=0
+              SMOKE_PASSED="false"
+              DIR_SIZE=0
+              if [ -n "$BINARY" ] && [ -f "$BINARY" ]; then
+                BINARY_SIZE=$(stat -c%s "$BINARY")
+                DIR_SIZE=$(du -sb /output/cxdist | cut -f1)
+                chmod +x "$BINARY"
+                if timeout 10 "$BINARY" --help >/dev/null 2>&1; then
+                  SMOKE_PASSED="true"
+                fi
+              fi
+
+              CX_VERSION="$(python -c "import cx_Freeze; print(cx_Freeze.__version__)" 2>/dev/null || echo unknown)"
+
+              cat > "/output/result-cxfreeze-${TARGET}-${OPTIMIZE}-musl.json" <<EOJSON
+              {
+                "target": "$TARGET",
+                "compiler": "cx_Freeze",
+                "optimize": $OPTIMIZE,
+                "libc": "musl",
+                "binary_size_bytes": $BINARY_SIZE,
+                "dir_size_bytes": $DIR_SIZE,
+                "build_time_seconds": $BUILD_TIME,
+                "smoke_test_passed": $SMOKE_PASSED,
+                "python_version": "$(python --version 2>&1)",
+                "compiler_version": "$CX_VERSION"
+              }
+EOJSON
+              echo "=== Result ==="
+              cat /output/result-*.json
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "cxfreeze-${{ matrix.label }}"
+          path: |
+            build/result-*.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Build summary
+        if: always()
+        run: |
+          RESULT_FILE=$(ls build/result-*.json 2>/dev/null | head -1)
+          if [ -n "$RESULT_FILE" ]; then
+            RESULT=$(cat "$RESULT_FILE")
+            SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "0"')
+            DIR=$(echo "$RESULT" | jq -r '.dir_size_bytes // "0"')
+            TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "0"')
+            SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "false"')
+            SIZE_MB="N/A"; DIR_MB="N/A"
+            if [ "$SIZE" != "0" ] && [ "$SIZE" != "null" ]; then SIZE_MB="$(echo "scale=2; $SIZE / 1048576" | bc) MB"; fi
+            if [ "$DIR" != "0" ] && [ "$DIR" != "null" ]; then DIR_MB="$(echo "scale=2; $DIR / 1048576" | bc) MB"; fi
+            echo "### ${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Binary Size | ${SIZE_MB} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Directory Size | ${DIR_MB} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Build Time | ${TIME}s |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Smoke Test | ${SMOKE} |" >> "$GITHUB_STEP_SUMMARY"
+          fi

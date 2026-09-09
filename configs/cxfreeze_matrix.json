@@ -1,0 +1,13 @@
+{
+  "include": [
+    {"target": "tinyleaf",    "optimize": 0, "libc": "glibc", "label": "cx-leaf-O0-glibc"},
+    {"target": "tinyleaf",    "optimize": 2, "libc": "glibc", "label": "cx-leaf-O2-glibc"},
+    {"target": "tinyleaf",    "optimize": 0, "libc": "musl",  "label": "cx-leaf-O0-musl"},
+    {"target": "tinyleaf",    "optimize": 2, "libc": "musl",  "label": "cx-leaf-O2-musl"},
+
+    {"target": "llm-rosetta", "optimize": 0, "libc": "glibc", "label": "cx-rosetta-O0-glibc"},
+    {"target": "llm-rosetta", "optimize": 2, "libc": "glibc", "label": "cx-rosetta-O2-glibc"},
+    {"target": "llm-rosetta", "optimize": 0, "libc": "musl",  "label": "cx-rosetta-O0-musl"},
+    {"target": "llm-rosetta", "optimize": 2, "libc": "musl",  "label": "cx-rosetta-O2-musl"}
+  ]
+}
