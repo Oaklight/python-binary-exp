@@ -64,7 +64,7 @@ jobs:
           fi
 
           START_TIME=$(date +%s)
-          cosmofy bundle $COSMOFY_FLAGS --output-dir /tmp/cosmofy-dist --verbose 2>&1 | tee /tmp/cosmofy-log.txt
+          cosmofy bundle $COSMOFY_FLAGS --output-dir /tmp/cosmofy-dist --verbose
           COSMOFY_EXIT=$?
           END_TIME=$(date +%s)
           BUILD_TIME=$((END_TIME - START_TIME))
@@ -93,8 +93,6 @@ jobs:
 
           if [ -z "$BINARY" ]; then
             echo "ERROR: No binary found anywhere"
-            echo "=== cosmofy log ==="
-            cat /tmp/cosmofy-log.txt 2>/dev/null || echo "no log"
             cat > "build/result-cosmofy-${TARGET}-${{ matrix.compile_bytecode }}.json" <<EOJSON
           {
             "target": "$TARGET",
