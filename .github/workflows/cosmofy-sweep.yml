@@ -1,0 +1,176 @@
+name: Cosmofy (Cosmopolitan APE) Sweep
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Targets to build (comma-separated: llm-rosetta,tinyleaf or all)"
+        default: "all"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: tinyleaf
+            compile_bytecode: "false"
+            label: cosmo-leaf-nobc
+          - target: tinyleaf
+            compile_bytecode: "true"
+            label: cosmo-leaf-bc
+          - target: llm-rosetta
+            compile_bytecode: "false"
+            label: cosmo-rosetta-nobc
+          - target: llm-rosetta
+            compile_bytecode: "true"
+            label: cosmo-rosetta-bc
+    name: "${{ matrix.label }}"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install cosmofy
+        run: uv tool install cosmofy
+
+      - name: Prepare target project
+        run: |
+          TARGET=${{ matrix.target }}
+          case "$TARGET" in
+            llm-rosetta)
+              git clone --depth=1 https://github.com/oaklight/llm-rosetta.git /tmp/target
+              ;;
+            tinyleaf)
+              git clone --depth=1 https://github.com/oaklight/tinyleaf.git /tmp/target
+              ;;
+          esac
+          echo "TARGET_DIR=/tmp/target" >> "$GITHUB_ENV"
+
+      - name: Build with cosmofy
+        run: |
+          cd "$TARGET_DIR"
+
+          COSMOFY_FLAGS=""
+          if [ "${{ matrix.compile_bytecode }}" = "true" ]; then
+            COSMOFY_FLAGS="$COSMOFY_FLAGS --compile-bytecode"
+          fi
+
+          START_TIME=$(date +%s)
+          cosmofy bundle $COSMOFY_FLAGS --output-format json -o /tmp/cosmofy-out | tee /tmp/cosmofy-result.json
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+
+          echo "BUILD_TIME=$BUILD_TIME" >> "$GITHUB_ENV"
+
+      - name: Collect results
+        run: |
+          TARGET=${{ matrix.target }}
+          mkdir -p build
+
+          BINARY=$(find /tmp/cosmofy-out -type f -executable 2>/dev/null | head -1)
+          if [ -z "$BINARY" ]; then
+            BINARY=$(find /tmp/cosmofy-out -type f | head -1)
+          fi
+
+          if [ -z "$BINARY" ]; then
+            echo "ERROR: No binary found in /tmp/cosmofy-out"
+            find /tmp/cosmofy-out -type f 2>/dev/null || echo "Directory empty"
+            # Write failure result
+            cat > "build/result-cosmofy-${TARGET}-${{ matrix.compile_bytecode }}.json" <<EOJSON
+          {
+            "target": "$TARGET",
+            "compiler": "cosmofy",
+            "compile_bytecode": ${{ matrix.compile_bytecode }},
+            "libc": "cosmopolitan",
+            "binary_size_bytes": 0,
+            "build_time_seconds": ${BUILD_TIME},
+            "smoke_test_passed": false,
+            "error": "no binary found"
+          }
+          EOJSON
+            exit 1
+          fi
+
+          BINARY_SIZE=$(stat -c%s "$BINARY" 2>/dev/null || stat -f%z "$BINARY")
+          SIZE_MB=$(echo "scale=2; $BINARY_SIZE / 1048576" | bc)
+
+          echo "=== Smoke test ==="
+          SMOKE_PASSED="false"
+          chmod +x "$BINARY" 2>/dev/null || true
+          if timeout 10 "$BINARY" --help >/dev/null 2>&1; then
+            SMOKE_PASSED="true"
+            echo "Smoke test PASSED"
+          else
+            echo "Smoke test FAILED"
+          fi
+
+          COSMOFY_VERSION="$(cosmofy --version 2>&1 || echo unknown)"
+
+          cat > "build/result-cosmofy-${TARGET}-${{ matrix.compile_bytecode }}.json" <<EOJSON
+          {
+            "target": "$TARGET",
+            "compiler": "cosmofy",
+            "compile_bytecode": ${{ matrix.compile_bytecode }},
+            "libc": "cosmopolitan",
+            "binary_size_bytes": $BINARY_SIZE,
+            "build_time_seconds": ${BUILD_TIME},
+            "smoke_test_passed": $SMOKE_PASSED,
+            "cosmofy_version": "$COSMOFY_VERSION",
+            "binary_path": "$BINARY"
+          }
+          EOJSON
+
+          cp "$BINARY" "build/${TARGET}-cosmofy$(if [ "${{ matrix.compile_bytecode }}" = "true" ]; then echo "-bc"; fi)"
+
+          echo "=== Result ==="
+          cat "build/result-cosmofy-${TARGET}-${{ matrix.compile_bytecode }}.json"
+          echo ""
+          echo "Binary: ${TARGET} — ${SIZE_MB} MB (cosmopolitan APE, cross-platform)"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "cosmofy-${{ matrix.label }}"
+          path: |
+            build/result-*.json
+            build/${{ matrix.target }}-*
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Build summary
+        if: always()
+        run: |
+          RESULT_FILE=$(ls build/result-*.json 2>/dev/null | head -1)
+          if [ -n "$RESULT_FILE" ]; then
+            RESULT=$(cat "$RESULT_FILE")
+            SIZE=$(echo "$RESULT" | jq -r '.binary_size_bytes // "N/A"')
+            TIME=$(echo "$RESULT" | jq -r '.build_time_seconds // "N/A"')
+            SMOKE=$(echo "$RESULT" | jq -r '.smoke_test_passed // "N/A"')
+            if [ "$SIZE" != "N/A" ] && [ "$SIZE" != "null" ] && [ "$SIZE" != "0" ]; then
+              SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
+              SIZE_DISPLAY="${SIZE_MB} MB"
+            else
+              SIZE_DISPLAY="N/A"
+            fi
+            echo "### ${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Metric | Value |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Target | ${{ matrix.target }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Bytecode Compilation | ${{ matrix.compile_bytecode }} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Platform | Cosmopolitan APE (Linux+macOS+Windows) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Binary Size | ${SIZE_DISPLAY} |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Build Time | ${TIME}s |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| Smoke Test | ${SMOKE} |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ${{ matrix.label }} — No result file found" >> "$GITHUB_STEP_SUMMARY"
+          fi
