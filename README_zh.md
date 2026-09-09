@@ -150,6 +150,47 @@
 | **Nuitka onefile, glibc** | 14.87 MB | 19.95 MB | Linux（glibc） | 最广泛的 Linux 兼容性 |
 | **cosmofy APE** | 38.80 MB | 39.32 MB | Linux + macOS + Windows | 一个二进制，全平台 |
 
+## 结论：单文件二进制排名
+
+对于需要**单个可移植文件**的仅标准库 Python 项目，以下是三种可行方案，按二进制大小排名：
+
+### 🥇 Nuitka `--onefile` + musl — 7–12 MB
+
+最小的独立单文件。将 Python 转译为 C，打包精简的 CPython 运行时，使用 zlib 压缩全部内容。musl libc 使体积比 glibc 缩小约一半。
+
+- tinyleaf: **6.98 MB** / llm-rosetta: **11.62 MB**
+- 平台：仅 Linux（musl 链接，可在 Alpine 及大多数现代 Linux 上运行）
+- 构建时间：约 2 分钟
+- 适用场景：部署到 Linux 容器或服务器，且对体积敏感
+
+### 🥈 Nuitka `--onefile` + glibc — 15–20 MB
+
+同上，但链接 glibc。体积更大（因为 glibc 本身更重），但开箱兼容几乎所有 Linux 发行版。
+
+- tinyleaf: **14.87 MB** / llm-rosetta: **19.95 MB**
+- 平台：仅 Linux（glibc，最广泛兼容）
+- 构建时间：约 2 分钟
+- 适用场景：目标 Linux 环境多样，不确定 musl 兼容性时
+
+### 🥉 cosmofy（Cosmopolitan APE）— ~39 MB
+
+将 Cosmopolitan Python 运行时（约 39 MB 基线）和应用的 `.py` 文件打包为单个 Actually Portable Executable。无需编译，只是打包。一个文件可在 Linux、macOS 和 Windows 上原生运行。
+
+- tinyleaf: **38.80 MB** / llm-rosetta: **39.32 MB**
+- 平台：Linux + macOS + Windows（单个二进制）
+- 构建时间：约 3 秒
+- 适用场景：需要一个文件在所有平台运行，体积不是首要考虑
+
+### 不适合单文件的工具
+
+| 工具 | 原因 |
+|------|------|
+| **Cython `--embed`** | 生成 20 KB 二进制但需要目标系统存在 `libpython.so`——非独立。静态链接理论上可行（约 3 MB），但需要手动构建各平台的静态 CPython，CI 集成太脆弱。 |
+| **Shed Skin** | 缺少关键标准库模块（`json`、`hashlib`、`http`、`threading` 等） |
+| **Codon** | 同样的标准库缺失 + BSL 商业许可证 |
+| **mypyc** | 生成 `.so` 扩展模块，不是可执行文件 |
+| **PyOxidizer** | 已废弃的项目 |
+
 ## 关键发现
 
 ### 1. musl 二进制文件比 glibc 小约 2 倍（Nuitka onefile 模式）

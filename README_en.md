@@ -150,6 +150,47 @@ Single Actually Portable Executable — one binary runs on Linux, macOS, and Win
 | **Nuitka onefile, glibc** | 14.87 MB | 19.95 MB | Linux (glibc) | Broadest Linux compat |
 | **cosmofy APE** | 38.80 MB | 39.32 MB | Linux + macOS + Windows | One binary, all platforms |
 
+## Verdict: Single-File Binary Ranking
+
+For stdlib-only Python projects that need a **single portable file**, here are the three viable options, ranked by binary size:
+
+### 🥇 Nuitka `--onefile` with musl — 7–12 MB
+
+The smallest standalone single file. Transpiles Python to C, bundles a minimal CPython runtime, compresses everything with zlib. musl libc cuts size roughly in half compared to glibc.
+
+- tinyleaf: **6.98 MB** / llm-rosetta: **11.62 MB**
+- Platform: Linux only (musl-linked, runs on Alpine and most modern Linux)
+- Build time: ~2 minutes
+- Use when: deploying to Linux containers or servers where size matters
+
+### 🥈 Nuitka `--onefile` with glibc — 15–20 MB
+
+Same as above but linked against glibc. Larger because glibc is heavier, but compatible with virtually all Linux distributions out of the box.
+
+- tinyleaf: **14.87 MB** / llm-rosetta: **19.95 MB**
+- Platform: Linux only (glibc, broadest compatibility)
+- Build time: ~2 minutes
+- Use when: targeting diverse Linux environments where musl compat is uncertain
+
+### 🥉 cosmofy (Cosmopolitan APE) — ~39 MB
+
+Bundles the Cosmopolitan Python runtime (~39 MB baseline) with your `.py` files into a single Actually Portable Executable. No compilation — just packaging. One file runs natively on Linux, macOS, and Windows.
+
+- tinyleaf: **38.80 MB** / llm-rosetta: **39.32 MB**
+- Platform: Linux + macOS + Windows (one binary)
+- Build time: ~3 seconds
+- Use when: you need one file that works everywhere, and size is secondary
+
+### Not viable for single-file
+
+| Tool | Why not |
+|------|---------|
+| **Cython `--embed`** | Produces a 20 KB binary but requires `libpython.so` on the target — not standalone. Static linking is theoretically possible (~3 MB) but requires manually building static CPython per platform; too fragile for CI. |
+| **Shed Skin** | Missing critical stdlib modules (`json`, `hashlib`, `http`, `threading`, etc.) |
+| **Codon** | Same stdlib gaps + BSL commercial license |
+| **mypyc** | Produces `.so` extensions, not executables |
+| **PyOxidizer** | Abandoned project |
+
 ## Key Findings
 
 ### 1. musl binaries are ~2× smaller than glibc for Nuitka onefile
